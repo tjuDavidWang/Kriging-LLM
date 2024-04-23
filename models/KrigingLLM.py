@@ -166,7 +166,7 @@ class Model(nn.Module):
         if configs.prompt_domain:
             self.description = configs.content
         else:
-            self.description = 'The Electricity Transformer Temperature (ETT) is a crucial indicator in the electric power long-term deployment.'
+            self.description = 'The METR-LA dataset is an essential resource in urban traffic management and research, comprising average vehicle speeds recorded by 207 detectors strategically placed across the Los Angeles County Highway system. The data covers a period from March 1, 2012, to June 27, 2012, with a sampling interval of every 5 minutes. This dataset is instrumental for analyzing traffic flow dynamics and optimizing traffic control strategies to enhance road safety and efficiency.'
 
         self.dropout = nn.Dropout(configs.dropout)
 
@@ -216,7 +216,15 @@ class Model(nn.Module):
             max_values_str = str(max_values[b].tolist()[0])
             median_values_str = str(medians[b].tolist()[0])
             lags_values_str = str(lags[b].tolist())
-            # prompt part
+            """
+            Dataset Description：xxx（数据集描述）
+            Observed Node Description：xxx（观察到的节点的属性信息，我们这里应该只有经纬度信息）
+            Unobserved Node Description：xxx（未观察到的节点的经纬度信息）
+            Input statistics of Observed Nodes：xxx（观察到的节点之间的连接关系，以及时序的统计特征）
+            Task Description：xxx（kriging任务描述）
+            """
+            #　需要有经纬度信息　sensor_locations_la.csv dict
+            #  需要有邻接矩阵信息 distances_la.csv
             prompt_ = (
                 f"<|start_prompt|>Dataset description: {self.description}"
                 f"Task description: forecast the next {str(self.pred_len)} steps given the previous {str(self.seq_len)} steps information; "

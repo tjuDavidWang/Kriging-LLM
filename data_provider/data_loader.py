@@ -19,7 +19,7 @@ class Dataset_ETT_hour(Dataset):
             self.seq_len = 24 * 4 * 4
             self.label_len = 24 * 4
             self.pred_len = 24 * 4
-        else:
+        else: # [args.seq_len, args.label_len, args.pred_len] [512,48,96]
             self.seq_len = size[0]
             self.label_len = size[1]
             self.pred_len = size[2]
@@ -32,7 +32,7 @@ class Dataset_ETT_hour(Dataset):
         self.features = features
         self.target = target
         self.scale = scale
-        self.timeenc = timeenc
+        self.timeenc = timeenc # time_embedding=='timeF'  [timeF, fixed, learned]
         self.freq = freq
 
         # self.percent = percent
@@ -48,14 +48,14 @@ class Dataset_ETT_hour(Dataset):
         df_raw = pd.read_csv(os.path.join(self.root_path,
                                           self.data_path))
 
-        border1s = [0, 12 * 30 * 24 - self.seq_len, 12 * 30 * 24 + 4 * 30 * 24 - self.seq_len]
-        border2s = [12 * 30 * 24, 12 * 30 * 24 + 4 * 30 * 24, 12 * 30 * 24 + 8 * 30 * 24]
+        border1s = [0, 12 * 30 * 24 - self.seq_len, 12 * 30 * 24 + 4 * 30 * 24 - self.seq_len] # [0,8128,11008] 17420 in total
+        border2s = [12 * 30 * 24, 12 * 30 * 24 + 4 * 30 * 24, 12 * 30 * 24 + 8 * 30 * 24] # [8640,11520,14400]
 
-        border1 = border1s[self.set_type]
-        border2 = border2s[self.set_type]
+        border1 = border1s[self.set_type] # get the start of ['train', 'test', 'val']
+        border2 = border2s[self.set_type] # # get the end of ['train', 'test', 'val']
 
         if self.set_type == 0:
-            border2 = (border2 - self.seq_len) * self.percent // 100 + self.seq_len
+            border2 = (border2 - self.seq_len) * self.percent // 100 + self.seq_len # adjust end with percent of train set
 
         if self.features == 'M' or self.features == 'MS':
             cols_data = df_raw.columns[1:]
@@ -64,7 +64,7 @@ class Dataset_ETT_hour(Dataset):
             df_data = df_raw[[self.target]]
 
         if self.scale:
-            train_data = df_data[border1s[0]:border2s[0]]
+            train_data = df_data[border1s[0]:border2s[0]] # [8640,7]
             self.scaler.fit(train_data.values)
             data = self.scaler.transform(df_data.values)
         else:
@@ -79,8 +79,8 @@ class Dataset_ETT_hour(Dataset):
             df_stamp['hour'] = df_stamp.date.apply(lambda row: row.hour, 1)
             data_stamp = df_stamp.drop(['date'], 1).values
         elif self.timeenc == 1:
-            data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
-            data_stamp = data_stamp.transpose(1, 0)
+            data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq) # time embedding [4,8640]
+            data_stamp = data_stamp.transpose(1, 0) #  [8640,4]
 
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
@@ -88,7 +88,7 @@ class Dataset_ETT_hour(Dataset):
 
 
     def __getitem__(self, index):
-        feat_id = index // self.tot_len
+        feat_id = index // self.tot_len # tot_len=8640
         s_begin = index % self.tot_len
 
         s_end = s_begin + self.seq_len
@@ -186,7 +186,7 @@ class Dataset_ETT_minute(Dataset):
         self.data_stamp = data_stamp
 
     def __getitem__(self, index):
-        feat_id = index // self.tot_len
+        feat_id = index // self.tot_len # to_len=8640-512-96+1=8033
         s_begin = index % self.tot_len
 
         s_end = s_begin + self.seq_len
