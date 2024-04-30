@@ -1,5 +1,6 @@
 from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_M4
 from torch.utils.data import DataLoader
+from data_provider.metr_la import Dataset_MetrLA
 
 data_dict = {
     'ETTh1': Dataset_ETT_hour,
@@ -10,6 +11,7 @@ data_dict = {
     'Traffic': Dataset_Custom,
     'Weather': Dataset_Custom,
     'm4': Dataset_M4,
+    'Metr-LA': Dataset_MetrLA
 }
 
 
@@ -29,6 +31,7 @@ def data_provider(args, flag):
         batch_size = args.batch_size
         freq = args.freq
 
+    #　根据data_dict中的dataset新建对应的dataloader
     if args.data == 'm4':
         drop_last = False
         data_set = Data(
@@ -42,6 +45,14 @@ def data_provider(args, flag):
             freq=freq,
             seasonal_patterns=args.seasonal_patterns
         )
+    elif args.data == "Metr-LA":
+        data_set=Data(flag=flag, 
+                      features='M', 
+                      window_size=24, 
+                      scale=True, 
+                      timeenc=1, 
+                      freq='5T', 
+                      percent=100)
     else:
         data_set = Data(
             root_path=args.root_path,
@@ -60,5 +71,6 @@ def data_provider(args, flag):
         batch_size=batch_size,
         shuffle=shuffle_flag,
         num_workers=args.num_workers,
-        drop_last=drop_last)
+        drop_last=drop_last,
+        pin_memory=True)
     return data_set, data_loader

@@ -6,7 +6,7 @@ from torch import nn, optim
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 
-from models import Autoformer, DLinear, TimeLLM, KrigingLLM
+from models import Autoformer, DLinear, TimeLLM
 
 from data_provider.data_factory import data_provider
 import time
@@ -66,7 +66,7 @@ parser.add_argument('--d_model', type=int, default=16, help='dimension of model'
 parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
 parser.add_argument('--e_layers', type=int, default=2, help='num of encoder layers')
 parser.add_argument('--d_layers', type=int, default=1, help='num of decoder layers')
-parser.add_argument('--d_ff', type=int, default=32, help='dimension of fcn') # ReprogrammingLayer中的FCN的层数
+parser.add_argument('--d_ff', type=int, default=32, help='dimension of fcn')
 parser.add_argument('--moving_avg', type=int, default=25, help='window size of moving average')
 parser.add_argument('--factor', type=int, default=1, help='attn factor')
 parser.add_argument('--dropout', type=float, default=0.1, help='dropout')
@@ -127,34 +127,23 @@ for ii in range(args.itr):
     train_data, train_loader = data_provider(args, 'train')
     vali_data, vali_loader = data_provider(args, 'val')
     test_data, test_loader = data_provider(args, 'test')
-    
-    # 增加补充信息到Metr-LA中
-    if args.data == "Metr-LA":
-        args.raw_mask = train_data.raw_mask
-        args.content = train_data.description
-        args.observed_mask = train_data.observed_mask
-        args.adj_matrix = train_data.adj_matrix
-    else:
-        args.content = load_content(args)
 
     if args.model == 'Autoformer':
         model = Autoformer.Model(args).float()
     elif args.model == 'DLinear':
         model = DLinear.Model(args).float()
-    elif args.model == 'KrigingLLM':
-        model = KrigingLLM.Model(args).float()
     else:
         model = TimeLLM.Model(args).float()
 
     path = os.path.join(args.checkpoints,
                         setting + '-' + args.model_comment)  # unique checkpoint saving path
-
+    args.content = load_content(args)
     if not os.path.exists(path) and accelerator.is_local_main_process:
         os.makedirs(path)
 
     time_now = time.time()
 
-    train_steps = len(train_loader) 
+    train_steps = len(train_loader) # 8640*7
     early_stopping = EarlyStopping(accelerator=accelerator, patience=args.patience)
 
     trained_parameters = []
@@ -175,7 +164,7 @@ for ii in range(args.itr):
 
     criterion = nn.MSELoss()
     mae_metric = nn.L1Loss()
-    
+
     train_loader, vali_loader, test_loader, model, model_optim, scheduler = accelerator.prepare(
         train_loader, vali_loader, test_loader, model, model_optim, scheduler)
 
@@ -275,7 +264,7 @@ for ii in range(args.itr):
             accelerator.print('Updating learning rate to {}'.format(scheduler.get_last_lr()[0]))
 
 accelerator.wait_for_everyone()
-# if accelerator.is_local_main_process:
-#     path = './checkpoints'  # unique checkpoint saving path
-#     del_files(path)  # delete checkpoint files
-#     accelerator.print('success delete checkpoints')
+if accelerator.is_local_main_process:
+    path = './checkpoints'  # unique checkpoint saving path
+    del_files(path)  # delete checkpoint files
+    accelerator.print('success delete checkpoints')
