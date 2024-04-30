@@ -39,6 +39,12 @@ class Model(nn.Module):
         self.d_llm = configs.llm_dim
         self.patch_len = configs.patch_len
         self.stride = configs.stride
+        
+        self.raw_mask = configs.raw_mask
+        self.description = configs.content
+        self.observed_mask = configs.observed_mask
+        self.adj_matrix = configs.adj_matrix
+        self.observed_indices = [index for index, value in enumerate(self.observed_mask) if value == 1]
 
         if configs.llm_model == 'LLAMA':
             # self.llama_config = LlamaConfig.from_pretrained('/mnt/alps/modelhub/pretrained_model/LLaMA/7B_hf/')
@@ -163,33 +169,31 @@ class Model(nn.Module):
         for param in self.llm_model.parameters():
             param.requires_grad = False
 
-        if configs.prompt_domain:
-            self.description = configs.content
-        else:
-            self.description = 'The METR-LA dataset is an essential resource in urban traffic management and research, comprising average vehicle speeds recorded by 207 detectors strategically placed across the Los Angeles County Highway system. The data covers a period from March 1, 2012, to June 27, 2012, with a sampling interval of every 5 minutes. This dataset is instrumental for analyzing traffic flow dynamics and optimizing traffic control strategies to enhance road safety and efficiency.'
-
         self.dropout = nn.Dropout(configs.dropout)
 
         self.patch_embedding = PatchEmbedding(
             configs.d_model, self.patch_len, self.stride, configs.dropout)
 
-        self.word_embeddings = self.llm_model.get_input_embeddings().weight
+        self.word_embeddings = self.llm_model.get_input_embeddings().weight # [50257, 768]
         self.vocab_size = self.word_embeddings.shape[0]
+
         self.num_tokens = 1000
         self.mapping_layer = nn.Linear(self.vocab_size, self.num_tokens)
 
         self.reprogramming_layer = ReprogrammingLayer(configs.d_model, configs.n_heads, self.d_ff, self.d_llm)
 
         self.patch_nums = int((configs.seq_len - self.patch_len) / self.stride + 2)
+
         self.head_nf = self.d_ff * self.patch_nums
 
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
+            # FlattenHead(self, n_vars, nf, target_window, head_dropout=0)
             self.output_projection = FlattenHead(configs.enc_in, self.head_nf, self.pred_len,
                                                  head_dropout=configs.dropout)
         else:
             raise NotImplementedError
 
-        self.normalize_layers = Normalize(configs.enc_in, affine=False)
+        self.normalize_layers = Normalize(configs.enc_in, affine=False) # RevIN
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
@@ -202,12 +206,12 @@ class Model(nn.Module):
         x_enc = self.normalize_layers(x_enc, 'norm')
 
         B, T, N = x_enc.size()
-        x_enc = x_enc.permute(0, 2, 1).contiguous().reshape(B * N, T, 1) # [4, 512, 1]
+        x_enc = x_enc.permute(0, 2, 1).contiguous().reshape(B * N, T, 1) 
 
         min_values = torch.min(x_enc, dim=1)[0]
         max_values = torch.max(x_enc, dim=1)[0]
         medians = torch.median(x_enc, dim=1).values
-        lags = self.calcute_lags(x_enc)
+        lags = self.calcute_lags(x_enc) # 提取出前topk个freq
         trends = x_enc.diff(dim=1).sum(dim=1)
 
         prompt = []
@@ -225,15 +229,28 @@ class Model(nn.Module):
             """
             #　需要有经纬度信息　sensor_locations_la.csv dict
             #  需要有邻接矩阵信息 distances_la.csv
+            # prompt_ = (
+            #     f"<|start_prompt|>Dataset description: {self.description}"
+            #     f"Task description: forecast the next {str(self.pred_len)} steps given the previous {str(self.seq_len)} steps information; "
+            #     "Input statistics: "
+            #     f"min value {min_values_str}, "
+            #     f"max value {max_values_str}, "
+            #     f"median value {median_values_str}, "
+            #     f"the trend of input is {'upward' if trends[b] > 0 else 'downward'}, "
+            #     f"top 5 lags are : {lags_values_str}<|<end_prompt>|>"
+            # )
             prompt_ = (
                 f"<|start_prompt|>Dataset description: {self.description}"
-                f"Task description: forecast the next {str(self.pred_len)} steps given the previous {str(self.seq_len)} steps information; "
+                f"Task description: imputating the unobserved 99 nodes by the observed 108 nodes in the range of 24 steps, where the unobserved values are denoted by zeroes; "
                 "Input statistics: "
                 f"min value {min_values_str}, "
                 f"max value {max_values_str}, "
                 f"median value {median_values_str}, "
                 f"the trend of input is {'upward' if trends[b] > 0 else 'downward'}, "
-                f"top 5 lags are : {lags_values_str}<|<end_prompt>|>"
+                f"top 5 lags are : {lags_values_str}"
+                f"the index of observed nodes are : {self.observed_indices}"
+                f"and its adjancy matrix is : {self.adj_matrix}"
+                "<|<end_prompt>|>"
             )
             prompt.append(prompt_)
 
